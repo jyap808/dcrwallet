@@ -45,6 +45,9 @@ type Config struct {
 	// Limit maximum number of purchased tickets per block
 	Limit int
 
+	// Maximum price for a ticket purchase
+	MaxPrice dcrutil.Amount
+
 	// CSPP-related options
 	CSPPServer         string
 	DialCSPPServer     func(ctx context.Context, network, addr string) (net.Conn, error)
@@ -246,6 +249,7 @@ func (tb *TB) buy(ctx context.Context, passphrase []byte, tip *wire.BlockHeader,
 	poolFeeAddr := cfg.PoolFeeAddr
 	poolFees := cfg.PoolFees
 	limit := cfg.Limit
+	maxPrice := cfg.MaxPrice
 	csppServer := cfg.CSPPServer
 	dialCSPPServer := cfg.DialCSPPServer
 	votingAccount := cfg.VotingAccount
@@ -257,6 +261,10 @@ func (tb *TB) buy(ctx context.Context, passphrase []byte, tip *wire.BlockHeader,
 	sdiff, err := w.NextStakeDifficultyAfterHeader(ctx, tip)
 	if err != nil {
 		return err
+	}
+	if sdiff > maxPrice {
+		log.Debugf("Skipping purchase: stake diff %s > max price %s", sdiff, maxPrice)
+		return nil
 	}
 
 	// Determine how many tickets to buy

@@ -356,6 +356,7 @@ func run(ctx context.Context) error {
 				c.VotingAddr = votingAddr
 				c.PoolFeeAddr = poolFeeAddr
 				c.Limit = int(cfg.TBOpts.Limit)
+				c.MaxPrice = cfg.TBOpts.MaxPrice.Amount
 				c.VotingAccount = votingAccount
 				c.CSPPServer = cfg.CSPPServer
 				c.DialCSPPServer = cfg.dialCSPPServer
