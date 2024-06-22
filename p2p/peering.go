@@ -39,14 +39,10 @@ var uaVersion = version.String()
 
 // minPver is the minimum protocol version we require remote peers to
 // implement.
-const minPver = wire.CFilterV2Version
+const minPver = wire.RemoveRejectVersion
 
 // Pver is the maximum protocol version implemented by the LocalPeer.
-const Pver = wire.InitStateVersion
-
-// connectTimeout is the amount of time allowed before connecting, peering
-// handshake, and protocol negotiation is aborted.
-const connectTimeout = 30 * time.Second
+const Pver = wire.RemoveRejectVersion
 
 // stallTimeout is the amount of time allowed before a request to receive data
 // that is known to exist at the RemotePeer times out with no matching reply.
@@ -232,9 +228,6 @@ func (lp *LocalPeer) ConnectOutbound(ctx context.Context, addr string, reqSvcs w
 
 	log.Debugf("Attempting connection to peer %v", addr)
 
-	connectCtx, cancel := context.WithTimeout(ctx, connectTimeout)
-	defer cancel()
-
 	// Generate a unique ID for this peer and add the initial connection state.
 	id := atomic.AddUint64(&lp.atomicPeerIDCounter, 1)
 
@@ -247,7 +240,7 @@ func (lp *LocalPeer) ConnectOutbound(ctx context.Context, addr string, reqSvcs w
 	na := addrmgr.NewNetAddressIPPort(tcpAddr.IP, uint16(tcpAddr.Port), wire.SFNodeNetwork)
 	na.Timestamp = time.Now()
 
-	rp, err := lp.connectOutbound(connectCtx, id, addr, na)
+	rp, err := lp.connectOutbound(ctx, id, addr, na)
 	if err != nil {
 		op := errors.Opf(opf, addr)
 		return nil, errors.E(op, err)
@@ -556,43 +549,23 @@ func handshake(ctx context.Context, lp *LocalPeer, id uint64, na *addrmgr.NetAdd
 func (lp *LocalPeer) connectOutbound(ctx context.Context, id uint64, addr string,
 	na *addrmgr.NetAddress) (*RemotePeer, error) {
 
-	var c net.Conn
-	var retryDuration = 5 * time.Second
-	timer := time.NewTimer(retryDuration)
-	var err error
-	for {
-		// Mark the connection attempt.
-		lp.amgr.Attempt(na)
+	// Mark the connection attempt.
+	lp.amgr.Attempt(na)
 
-		// Dial with a timeout of 10 seconds.
-		dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		c, err = lp.dial(dialCtx, "tcp", addr)
-		cancel()
-		if err == nil {
-			break
-		}
-		var netErr net.Error
-		if errors.As(err, &netErr) && !netErr.Temporary() {
-			return nil, err
-		}
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return nil, ctx.Err()
-		case <-timer.C:
-			if retryDuration < 200*time.Second {
-				retryDuration += 5 * time.Second
-				timer.Reset(retryDuration)
-			}
-		}
+	// Dial with a timeout of 10 seconds.
+	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	c, err := lp.dial(dialCtx, "tcp", addr)
+	cancel()
+	if err != nil {
+		return nil, err
 	}
+
 	lp.amgr.Connected(na)
 
-	rp, err := handshake(ctx, lp, id, na, c)
+	// Handshake with a timeout of 5s.
+	handshakeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	rp, err := handshake(handshakeCtx, lp, id, na, c)
+	cancel()
 	if err != nil {
 		return nil, err
 	}
@@ -757,8 +730,6 @@ func (rp *RemotePeer) readMessages(ctx context.Context) error {
 				if rp.lp.messageIsMasked(MaskInv) {
 					rp.lp.receivedInv <- newInMsg(rp, msg)
 				}
-			case *wire.MsgReject:
-				log.Warnf("%v reject(%v, %v, %v): %v", rp.raddr, m.Cmd, m.Code, &m.Hash, m.Reason)
 			case *wire.MsgGetMiningState:
 				rp.receivedGetMiningState(ctx)
 			case *wire.MsgGetInitState:
