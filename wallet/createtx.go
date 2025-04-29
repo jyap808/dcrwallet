@@ -1106,7 +1106,7 @@ func (w *Wallet) mixedSplit(ctx context.Context, req *PurchaseTicketsRequest, ne
 	if change != nil && dcrutil.Amount(change.Value) < smallestMixChange(relayFee) {
 		change = nil
 	}
-	gen := w.makeGen(ctx, req.MixedAccount, req.MixedAccountBranch)
+	gen := w.makeGen(ctx, req.MixedSplitAccount, req.MixedAccountBranch)
 	expires := w.dicemixExpiry(ctx)
 	cj := mixclient.NewCoinJoin(gen, change, int64(neededPerTicket), expires, uint32(req.Count))
 	for i, in := range atx.Tx.TxIn {
@@ -1699,13 +1699,13 @@ func (w *Wallet) purchaseTickets(ctx context.Context, op errors.Op,
 		// an address.
 		var addrVote stdaddr.StakeAddress
 
-		// If req.UseVotingAccount is true, always take the submission
-		// script's address from the voting account. This is intended
-		// to be used with a special account type. The signing address
-		// for the same index is saved to the database. That address is
-		// later used to sign messages sent to a vspd related to this
-		// ticket.
-		if req.UseVotingAccount {
+		// If req.Mixing or req.UseVotingAccount is true, derive the
+		// submission script's address from the voting account. This
+		// is intended to be used with a special account type. The
+		// signing address for the same index is saved to the
+		// database. That address is later used to sign messages sent
+		// to a vspd related to this ticket.
+		if req.Mixing || req.UseVotingAccount {
 			var idx uint32
 			addrVote, idx, err = stakeAddrFunc(op, req.VotingAccount, 1)
 			if err != nil {
@@ -1722,7 +1722,7 @@ func (w *Wallet) purchaseTickets(ctx context.Context, op errors.Op,
 				addrVote = w.ticketAddress
 			}
 			if addrVote == nil {
-				addrVote, _, err = stakeAddrFunc(op, req.VotingAccount, 1)
+				addrVote, _, err = stakeAddrFunc(op, req.SourceAccount, 1)
 				if err != nil {
 					return nil, err
 				}

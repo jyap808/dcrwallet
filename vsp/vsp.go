@@ -22,7 +22,7 @@ import (
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/wire"
 	"github.com/decred/slog"
-	vspd "github.com/decred/vspd/client/v3"
+	vspd "github.com/decred/vspd/client/v4"
 )
 
 type DialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
@@ -219,7 +219,7 @@ func (c *Client) Process(ctx context.Context, ticket *wallet.VSPTicket, feeTx *w
 		// transaction, submit it then confirm.
 		fp := c.feePayment(ctx, ticket, false)
 		if fp == nil {
-			err := fp.ticket.UpdateFeeErrored(ctx, c.Client.URL, c.Client.PubKey)
+			err := ticket.UpdateFeeErrored(ctx, c.Client.URL, c.Client.PubKey)
 			if err != nil {
 				return err
 			}
@@ -232,7 +232,7 @@ func (c *Client) Process(ctx context.Context, ticket *wallet.VSPTicket, feeTx *w
 		fp.mu.Unlock()
 		err := fp.receiveFeeAddress()
 		if err != nil {
-			err := fp.ticket.UpdateFeeErrored(ctx, c.Client.URL, c.Client.PubKey)
+			err := ticket.UpdateFeeErrored(ctx, c.Client.URL, c.Client.PubKey)
 			if err != nil {
 				return err
 			}
@@ -243,7 +243,7 @@ func (c *Client) Process(ctx context.Context, ticket *wallet.VSPTicket, feeTx *w
 		}
 		err = fp.makeFeeTx(feeTx)
 		if err != nil {
-			err := fp.ticket.UpdateFeeErrored(ctx, c.Client.URL, c.Client.PubKey)
+			err := ticket.UpdateFeeErrored(ctx, c.Client.URL, c.Client.PubKey)
 			if err != nil {
 				return err
 			}

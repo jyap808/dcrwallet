@@ -55,6 +55,10 @@ type Syncer struct {
 	relevantTxs  map[chainhash.Hash][]*wire.MsgTx
 
 	cb *Callbacks
+
+	done   chan struct{}
+	err    error
+	doneMu sync.Mutex
 }
 
 // RPCOptions specifies the network and security settings for establishing a
@@ -525,11 +529,24 @@ func (s *Syncer) Run(ctx context.Context) (err error) {
 		}
 	}()
 
+	s.doneMu.Lock()
+	s.done = make(chan struct{})
+	s.err = nil
+	s.doneMu.Unlock()
+	defer func() {
+		s.doneMu.Lock()
+		close(s.done)
+		s.err = err
+		s.doneMu.Unlock()
+	}()
+
 	params := s.wallet.ChainParams()
 
+	ntfnCtx, ntfnCtxCancel := context.WithCancel(context.Background())
+	defer ntfnCtxCancel()
 	s.notifier = &notifier{
 		syncer: s,
-		ctx:    ctx,
+		ctx:    ntfnCtx,
 		closed: make(chan struct{}),
 	}
 	addr, err := normalizeAddress(s.opts.Address, s.opts.DefaultPort)
@@ -554,8 +571,7 @@ func (s *Syncer) Run(ctx context.Context) (err error) {
 		pool := x509.NewCertPool()
 		pool.AppendCertsFromPEM(s.opts.CA)
 		tc := &tls.Config{
-			MinVersion:       tls.VersionTLS12,
-			CurvePreferences: []tls.CurveID{tls.X25519, tls.CurveP256},
+			MinVersion: tls.VersionTLS12,
 			CipherSuites: []uint16{ // Only applies to TLS 1.2. TLS 1.3 ciphersuites are not configurable.
 				tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
 				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
@@ -575,12 +591,12 @@ func (s *Syncer) Run(ctx context.Context) (err error) {
 		}
 		opts = append(opts, wsrpc.WithTLSConfig(tc))
 	}
-	client, err := wsrpc.Dial(ctx, addr, opts...)
+	wsClient, err := wsrpc.Dial(ctx, addr, opts...)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
-	s.rpc = dcrd.New(client)
+	defer wsClient.Close()
+	s.rpc = dcrd.New(wsClient)
 
 	// Verify that the server is running on the expected network.
 	var netID wire.CurrencyNet
@@ -709,10 +725,27 @@ func (s *Syncer) Run(ctx context.Context) (err error) {
 		return err
 	}
 
+	defer func() {
+		ntfnCtxCancel()
+
+		select {
+		case <-ctx.Done():
+			wsClient.Close()
+		default:
+		}
+
+		// Wait for notifications to finish before returning
+		<-s.notifier.closed
+	}()
+
+	// Ensure wallet.Run cleanly finishes/is canceled first when outer
+	// context is canceled.
+	walletCtx, walletCtxCancel := context.WithCancel(context.Background())
+	defer walletCtxCancel()
 	g.Go(func() error {
 		// Run wallet background goroutines (currently, this just runs
 		// mixclient).
-		return s.wallet.Run(ctx)
+		return s.wallet.Run(walletCtx)
 	})
 
 	// Request notifications for mixing messages.
@@ -725,19 +758,16 @@ func (s *Syncer) Run(ctx context.Context) (err error) {
 
 	log.Infof("Blockchain sync completed, wallet ready for general usage.")
 
-	// Wait for notifications to finish before returning
-	defer func() {
-		<-s.notifier.closed
-	}()
-
 	g.Go(func() error {
+		var err error
 		select {
 		case <-ctx.Done():
-			client.Close()
-			return ctx.Err()
-		case <-client.Done():
-			return client.Err()
+			err = ctx.Err()
+		case <-wsClient.Done():
+			err = wsClient.Err()
 		}
+		walletCtxCancel()
+		return err
 	})
 	return g.Wait()
 }

@@ -97,6 +97,7 @@ var handlers = map[string]handler{
 	"createnewaccount":          {fn: (*Server).createNewAccount},
 	"createrawtransaction":      {fn: (*Server).createRawTransaction},
 	"createsignature":           {fn: (*Server).createSignature},
+	"debuglevel":                {fn: (*Server).debugLevel},
 	"disapprovepercent":         {fn: (*Server).disapprovePercent},
 	"discoverusage":             {fn: (*Server).discoverUsage},
 	"dumpprivkey":               {fn: (*Server).dumpPrivKey},
@@ -793,6 +794,23 @@ func (s *Server) createSignature(ctx context.Context, icmd any) (any, error) {
 		Signature: hex.EncodeToString(sig),
 		PublicKey: hex.EncodeToString(pubkey),
 	}, nil
+}
+
+func (s *Server) debugLevel(ctx context.Context, icmd any) (any, error) {
+	cmd := icmd.(*types.DebugLevelCmd)
+
+	if cmd.LevelSpec == "show" {
+		return fmt.Sprintf("Supported subsystems %v",
+			s.cfg.Loggers.Subsystems()), nil
+	}
+
+	err := s.cfg.Loggers.SetLevels(cmd.LevelSpec)
+	if err != nil {
+		return nil, rpcErrorf(dcrjson.ErrRPCInvalidParameter,
+			"invalid debug level %v: %v", cmd.LevelSpec, err)
+	}
+
+	return "Done.", nil
 }
 
 // disapprovePercent returns the wallets current disapprove percentage.
@@ -3353,6 +3371,8 @@ func (s *Server) purchaseTicket(ctx context.Context, icmd any) (any, error) {
 	var mixedAccount uint32
 	var mixedAccountBranch uint32
 	var mixedSplitAccount uint32
+	// Use purchasing account as change account by default (overridden below if
+	// mixing is enabled).
 	var changeAccount = account
 
 	if s.cfg.Mixing {
@@ -3372,7 +3392,7 @@ func (s *Server) purchaseTicket(ctx context.Context, icmd any) (any, error) {
 			return nil, rpcErrorf(dcrjson.ErrRPCInvalidParameter,
 				"CSPP Server set, but error on mixedSplitAccount: %v", err)
 		}
-		_, err = w.AccountNumber(ctx, s.cfg.MixChangeAccount)
+		changeAccount, err = w.AccountNumber(ctx, s.cfg.MixChangeAccount)
 		if err != nil {
 			return nil, rpcErrorf(dcrjson.ErrRPCInvalidParameter,
 				"CSPP Server set, but error on changeAccount: %v", err)
@@ -5448,6 +5468,14 @@ func (s *Server) version(ctx context.Context, icmd any) (any, error) {
 		}
 	}
 
+	resp["dcrwallet"] = dcrdtypes.VersionResult{
+		VersionString: version.String(),
+		Major:         version.Major,
+		Minor:         version.Minor,
+		Patch:         version.Patch,
+		Prerelease:    version.PreRelease,
+		BuildMetadata: version.BuildMetadata,
+	}
 	resp["dcrwalletjsonrpcapi"] = dcrdtypes.VersionResult{
 		VersionString: jsonrpcSemverString,
 		Major:         jsonrpcSemverMajor,
@@ -5639,7 +5667,7 @@ func (s *Server) mixOutput(ctx context.Context, icmd any) (any, error) {
 }
 
 func (s *Server) mixAccount(ctx context.Context, icmd any) (any, error) {
-	if s.cfg.Mixing {
+	if !s.cfg.Mixing {
 		return nil, errors.E("Mixing is not configured")
 	}
 	w, ok := s.walletLoader.LoadedWallet()

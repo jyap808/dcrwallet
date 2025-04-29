@@ -52,8 +52,10 @@ func pickForGetCfilters(lastHeaderHeight int32) func(rp *p2p.RemotePeer) bool {
 		// blocks are generated while performing the sync, therefore
 		// the initial advertised peer height would be lower than the
 		// last header height.  Therefore, accept peers that are
-		// close, but not quite at the tip.
-		return rp.InitialHeight() >= lastHeaderHeight-6
+		// close, but not quite at the tip. It's possible that sync
+		// until now took longer than six blocks. In that case get
+		// cfilters from a peer that gave us headers.
+		return rp.InitialHeight() >= lastHeaderHeight-6 || rp.LastHeight() >= lastHeaderHeight
 	}
 }
 
@@ -618,4 +620,25 @@ func (s *Syncer) Rescan(ctx context.Context, blockHashes []chainhash.Hash, save 
 // itself without requiring the NetworkBackend.
 func (s *Syncer) StakeDifficulty(ctx context.Context) (dcrutil.Amount, error) {
 	return 0, errors.E(errors.Invalid, "stake difficulty is not queryable over wire protocol")
+}
+
+func (s *Syncer) Done() <-chan struct{} {
+	s.doneMu.Lock()
+	c := s.done
+	s.doneMu.Unlock()
+	return c
+}
+
+func (s *Syncer) Err() error {
+	s.doneMu.Lock()
+	c := s.done
+	err := s.err
+	s.doneMu.Unlock()
+
+	select {
+	case <-c:
+		return err
+	default:
+		return nil
+	}
 }

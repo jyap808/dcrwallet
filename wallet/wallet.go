@@ -414,7 +414,7 @@ func (w *Wallet) AgendaChoices(ctx context.Context, ticketHash *chainhash.Hash) 
 	const op errors.Op = "wallet.AgendaChoices"
 	version, deployments := CurrentAgendas(w.chainParams)
 	if len(deployments) == 0 {
-		return nil, 0, nil
+		return map[string]string{}, 0, nil
 	}
 
 	choices = make(map[string]string, len(deployments))
@@ -1560,7 +1560,7 @@ type PurchaseTicketsRequest struct {
 	VotingAddress    stdaddr.StakeAddress
 	MinConf          int32
 	Expiry           int32
-	VotingAccount    uint32 // Used when VotingAddress == nil, or Mixing == true
+	VotingAccount    uint32 // Used when Mixing == true || UseVotingAccount == true
 	UseVotingAccount bool   // Forces use of supplied voting account.
 	DontSignTx       bool
 
@@ -1607,6 +1607,9 @@ func (w *Wallet) PurchaseTickets(ctx context.Context, n NetworkBackend,
 	req *PurchaseTicketsRequest) (*PurchaseTicketsResponse, error) {
 
 	const op errors.Op = "wallet.PurchaseTickets"
+
+	ctx, cancel := WrapNetworkBackendContext(n, ctx)
+	defer cancel()
 
 	resp, err := w.purchaseTickets(ctx, op, n, req)
 	if err == nil || !errors.Is(err, errVSPFeeRequiresUTXOSplit) || req.DontSignTx {
@@ -2901,8 +2904,8 @@ const (
 	TicketStatusRevoked // revoked
 )
 
-func makeTicketSummary(ctx context.Context, rpc *dcrd.RPC, dbtx walletdb.ReadTx,
-	w *Wallet, details *udb.TicketDetails) *TicketSummary {
+func makeTicketSummary(rpc *dcrd.RPC, dbtx walletdb.ReadTx, w *Wallet,
+	details *udb.TicketDetails) *TicketSummary {
 
 	ticketHeight := details.Ticket.Height()
 	_, tipHeight := w.txStore.MainChainTip(dbtx)
@@ -2974,7 +2977,7 @@ func (w *Wallet) GetTicketInfoPrecise(ctx context.Context, rpc *dcrd.RPC, hash *
 			return err
 		}
 
-		ticketSummary = makeTicketSummary(ctx, rpc, dbtx, w, ticketDetails)
+		ticketSummary = makeTicketSummary(rpc, dbtx, w, ticketDetails)
 		if ticketDetails.Ticket.Block.Height == -1 {
 			// unmined tickets do not have an associated block header
 			return nil
@@ -3022,7 +3025,7 @@ func (w *Wallet) GetTicketInfo(ctx context.Context, hash *chainhash.Hash) (*Tick
 			return err
 		}
 
-		ticketSummary = makeTicketSummary(ctx, nil, dbtx, w, ticketDetails)
+		ticketSummary = makeTicketSummary(nil, dbtx, w, ticketDetails)
 		if ticketDetails.Ticket.Block.Height == -1 {
 			// unmined tickets do not have an associated block header
 			return nil
@@ -3143,7 +3146,7 @@ func (w *Wallet) GetTicketsPrecise(ctx context.Context, rpc *dcrd.RPC,
 				if ticketInfo == nil {
 					continue
 				}
-				summary := makeTicketSummary(ctx, rpc, dbtx, w, ticketInfo)
+				summary := makeTicketSummary(rpc, dbtx, w, ticketInfo)
 				tickets = append(tickets, summary)
 			}
 
@@ -3217,7 +3220,7 @@ func (w *Wallet) GetTickets(ctx context.Context,
 				if ticketInfo == nil {
 					continue
 				}
-				summary := makeTicketSummary(ctx, nil, dbtx, w, ticketInfo)
+				summary := makeTicketSummary(nil, dbtx, w, ticketInfo)
 				tickets = append(tickets, summary)
 			}
 

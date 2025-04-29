@@ -118,7 +118,8 @@ func (tb *TB) Run(ctx context.Context, passphrase []byte) error {
 			// the tip block.
 			rp, err := w.RescanPoint(ctx)
 			if err != nil {
-				return err
+				log.Debugf("Skipping autobuyer actions: RescanPoint err: %v", err)
+				continue
 			}
 			if rp != nil {
 				log.Debugf("Skipping autobuyer actions: transactions are not synced")
@@ -229,6 +230,8 @@ func (tb *TB) buy(ctx context.Context, passphrase []byte, tip *wire.BlockHeader,
 	if err != nil {
 		return err
 	}
+	ctx, cancel := wallet.WrapNetworkBackendContext(n, ctx)
+	defer cancel()
 
 	if len(passphrase) > 0 {
 		// Ensure wallet is unlocked with the current passphrase.  If the passphase
