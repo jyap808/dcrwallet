@@ -343,6 +343,7 @@ func run(ctx context.Context) error {
 				Account:            purchaseAccount,
 				Maintain:           cfg.TBOpts.BalanceToMaintainAbsolute.Amount,
 				Limit:              int(cfg.TBOpts.Limit),
+				MaxPrice:           cfg.TBOpts.MaxPrice.Amount,
 				VotingAccount:      votingAccount,
 				Mixing:             cfg.MixingEnabled,
 				MixChange:          cfg.MixChange,

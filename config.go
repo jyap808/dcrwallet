@@ -65,6 +65,7 @@ const (
 	// ticket buyer options
 	defaultBalanceToMaintainAbsolute = 0
 	defaultTicketbuyerLimit          = 1
+	defaultMaxPrice                  = dcrutil.Amount(50000000000) // 500 DCR
 
 	walletDbName = "wallet.db"
 )
@@ -187,6 +188,7 @@ type ticketBuyerOptions struct {
 	BalanceToMaintainAbsolute *cfgutil.AmountFlag `long:"balancetomaintainabsolute" description:"Amount of funds to keep in wallet when purchasing tickets"`
 	Limit                     uint                `long:"limit" description:"Buy no more than specified number of tickets per block (0 for no limit)"`
 	VotingAccount             string              `long:"votingaccount" description:"Account used to derive addresses specifying voting rights (mandatory if mixing is enabled)"`
+	MaxPrice                  *cfgutil.AmountFlag `long:"maxprice" description:"Maximum price for a ticket purchase"`
 }
 
 type vspOptions struct {
@@ -381,6 +383,7 @@ func loadConfig(ctx context.Context) (*config, []string, error) {
 		TBOpts: ticketBuyerOptions{
 			BalanceToMaintainAbsolute: cfgutil.NewAmountFlag(defaultBalanceToMaintainAbsolute),
 			Limit:                     defaultTicketbuyerLimit,
+			MaxPrice:                  cfgutil.NewAmountFlag(defaultMaxPrice),
 		},
 
 		VSPOpts: vspOptions{
